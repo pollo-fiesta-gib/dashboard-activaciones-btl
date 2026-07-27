@@ -423,6 +423,7 @@ if df is not None and len(df) > 0:
                 st.info("✅ No se detectaron incidencias en las activaciones")
     
     # ==================== VISOR DE FOTOS ====================
+       # ==================== VISOR DE FOTOS ====================
     if len(df_filtrado) > 0:
         st.markdown("---")
         st.subheader("📸 Visor de Fotos - Evidencia en Campo")
@@ -446,25 +447,47 @@ if df is not None and len(df) > 0:
                     
                     with col1:
                         st.markdown("**📸 Foto del Lineal o Vitrina**")
-                        if 'Foto del lineal o vitrina (obligatoria)' in row and pd.notna(row['Foto del lineal o vitrina (obligatoria)']):
-                            url_foto = row['Foto del lineal o vitrina (obligatoria)']
-                            if 'drive.google.com' in str(url_foto):
-                                if 'id=' in str(url_foto):
-                                    file_id = str(url_foto).split('id=')[1].split('&')[0]
-                                    url_foto = f"https://drive.google.com/uc?export=view&id={file_id}"
-                            st.image(url_foto, use_container_width=True)
+                        url_foto = row.get('Foto del lineal o vitrina (obligatoria)', '')
+                        if pd.notna(url_foto) and url_foto:
+                            # Intentar extraer el ID de Google Drive
+                            import re
+                            # Buscar el ID en cualquier formato de link de Google Drive
+                            match = re.search(r'[?&]id=([a-zA-Z0-9_-]+)', str(url_foto))
+                            if match:
+                                file_id = match.group(1)
+                                # Usar el formato embed que funciona mejor
+                                embed_url = f"https://drive.google.com/thumbnail?export=view&id={file_id}"
+                                st.image(embed_url, use_container_width=True)
+                            elif 'open?id=' in str(url_foto):
+                                file_id = str(url_foto).split('open?id=')[1].split('&')[0]
+                                embed_url = f"https://drive.google.com/thumbnail?export=view&id={file_id}"
+                                st.image(embed_url, use_container_width=True)
+                            elif 'uc?export=view' in str(url_foto):
+                                st.image(url_foto, use_container_width=True)
+                            else:
+                                # Intentar mostrar como HTML
+                                st.markdown(f'<a href="{url_foto}" target="_blank">Ver imagen en Google Drive</a>', unsafe_allow_html=True)
                         else:
                             st.info("No hay foto disponible")
                     
                     with col2:
                         st.markdown("**✍️ Firma del Administrador**")
-                        if 'Firma de quien califica' in row and pd.notna(row['Firma de quien califica']):
-                            url_firma = row['Firma de quien califica']
-                            if 'drive.google.com' in str(url_firma):
-                                if 'id=' in str(url_firma):
-                                    file_id = str(url_firma).split('id=')[1].split('&')[0]
-                                    url_firma = f"https://drive.google.com/uc?export=view&id={file_id}"
-                            st.image(url_firma, use_container_width=True)
+                        url_firma = row.get('Firma de quien califica', '')
+                        if pd.notna(url_firma) and url_firma:
+                            import re
+                            match = re.search(r'[?&]id=([a-zA-Z0-9_-]+)', str(url_firma))
+                            if match:
+                                file_id = match.group(1)
+                                embed_url = f"https://drive.google.com/thumbnail?export=view&id={file_id}"
+                                st.image(embed_url, use_container_width=True)
+                            elif 'open?id=' in str(url_firma):
+                                file_id = str(url_firma).split('open?id=')[1].split('&')[0]
+                                embed_url = f"https://drive.google.com/thumbnail?export=view&id={file_id}"
+                                st.image(embed_url, use_container_width=True)
+                            elif 'uc?export=view' in str(url_firma):
+                                st.image(url_firma, use_container_width=True)
+                            else:
+                                st.markdown(f'<a href="{url_firma}" target="_blank">Ver imagen en Google Drive</a>', unsafe_allow_html=True)
                         else:
                             st.info("No hay firma disponible")
                     
