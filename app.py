@@ -445,6 +445,7 @@ if df is not None and len(df) > 0:
                 st.success("✅ No se detectaron incidencias en las activaciones")
     
     # ==================== VISOR DE FOTOS MEJORADO ====================
+        # ==================== VISOR DE FOTOS MEJORADO ====================
     if len(df_filtrado) > 0:
         st.markdown("---")
         st.subheader("📸 Visor de Fotos - Evidencia en Campo")
@@ -482,6 +483,37 @@ if df is not None and len(df) > 0:
                 idx = indices[seleccion_idx]
                 row = df_filtrado.iloc[idx]
                 
+                # Función para extraer ID de Google Drive
+                def extraer_id_drive(url):
+                    if pd.isna(url) or not url:
+                        return None
+                    url = str(url)
+                    patrones = [
+                        r'[?&]id=([a-zA-Z0-9_-]+)',
+                        r'open\?id=([a-zA-Z0-9_-]+)',
+                        r'/d/([a-zA-Z0-9_-]+)'
+                    ]
+                    for patron in patrones:
+                        match = re.search(patron, url)
+                        if match:
+                            return match.group(1)
+                    return None
+                
+                # Función para generar múltiples formatos de link
+                def generar_links_drive(url):
+                    """Genera varios formatos de links de Google Drive"""
+                    file_id = extraer_id_drive(url)
+                    if not file_id:
+                        return [url]
+                    
+                    # Generar los 3 formatos
+                    formatos = [
+                        f"https://drive.google.com/open?id={file_id}",  # Formato 1: Vista previa
+                        f"https://drive.google.com/file/d/{file_id}/view",  # Formato 2: Vista directa
+                        f"https://drive.google.com/uc?export=view&id={file_id}",  # Formato 3: Embed (puede fallar)
+                    ]
+                    return formatos
+                
                 # Mostrar enlaces a las fotos
                 col1, col2 = st.columns(2)
                 
@@ -489,16 +521,20 @@ if df is not None and len(df) > 0:
                     st.markdown("**📸 Foto del Lineal o Vitrina**")
                     if col_foto and col_foto in row and pd.notna(row[col_foto]):
                         url_foto = row[col_foto]
-                        # Intentar convertir a formato embed
-                        url_embed = convertir_link_google_drive(url_foto)
-                        # Mostrar como enlace clickeable
+                        links = generar_links_drive(url_foto)
+                        
                         st.markdown(f"""
                         <div style="background-color: #f0f2f6; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #ddd;">
-                            <p style="font-size: 14px; color: #666;">🖼️ Haz clic en el botón para ver la foto</p>
-                            <a href="{url_foto}" target="_blank" style="display: inline-block; background-color: #FF4B4B; color: white; padding: 10px 25px; border-radius: 5px; text-decoration: none; font-weight: bold;">
-                                📷 Ver foto en Google Drive
-                            </a>
-                            <p style="font-size: 12px; color: #999; margin-top: 8px;">Se abrirá en una nueva pestaña</p>
+                            <p style="font-size: 14px; color: #666;">🖼️ Haz clic en cualquiera de los enlaces para ver la foto</p>
+                            <div style="display: flex; flex-direction: column; gap: 8px; align-items: center;">
+                                <a href="{links[0]}" target="_blank" style="display: inline-block; background-color: #FF4B4B; color: white; padding: 10px 25px; border-radius: 5px; text-decoration: none; font-weight: bold; width: 80%;">
+                                    📷 Ver foto (Opción 1 - Vista previa)
+                                </a>
+                                <a href="{links[1]}" target="_blank" style="display: inline-block; background-color: #4B9EFF; color: white; padding: 10px 25px; border-radius: 5px; text-decoration: none; font-weight: bold; width: 80%;">
+                                    📷 Ver foto (Opción 2 - Vista directa)
+                                </a>
+                            </div>
+                            <p style="font-size: 12px; color: #999; margin-top: 8px;">Se abrirá en una nueva pestaña - Prueba ambas opciones si una no funciona</p>
                         </div>
                         """, unsafe_allow_html=True)
                     else:
@@ -508,13 +544,20 @@ if df is not None and len(df) > 0:
                     st.markdown("**✍️ Firma del Administrador**")
                     if col_firma and col_firma in row and pd.notna(row[col_firma]):
                         url_firma = row[col_firma]
+                        links = generar_links_drive(url_firma)
+                        
                         st.markdown(f"""
                         <div style="background-color: #f0f2f6; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #ddd;">
-                            <p style="font-size: 14px; color: #666;">✍️ Haz clic en el botón para ver la firma</p>
-                            <a href="{url_firma}" target="_blank" style="display: inline-block; background-color: #4B9EFF; color: white; padding: 10px 25px; border-radius: 5px; text-decoration: none; font-weight: bold;">
-                                📝 Ver firma en Google Drive
-                            </a>
-                            <p style="font-size: 12px; color: #999; margin-top: 8px;">Se abrirá en una nueva pestaña</p>
+                            <p style="font-size: 14px; color: #666;">✍️ Haz clic en cualquiera de los enlaces para ver la firma</p>
+                            <div style="display: flex; flex-direction: column; gap: 8px; align-items: center;">
+                                <a href="{links[0]}" target="_blank" style="display: inline-block; background-color: #4B9EFF; color: white; padding: 10px 25px; border-radius: 5px; text-decoration: none; font-weight: bold; width: 80%;">
+                                    📝 Ver firma (Opción 1 - Vista previa)
+                                </a>
+                                <a href="{links[1]}" target="_blank" style="display: inline-block; background-color: #FF4B4B; color: white; padding: 10px 25px; border-radius: 5px; text-decoration: none; font-weight: bold; width: 80%;">
+                                    📝 Ver firma (Opción 2 - Vista directa)
+                                </a>
+                            </div>
+                            <p style="font-size: 12px; color: #999; margin-top: 8px;">Se abrirá en una nueva pestaña - Prueba ambas opciones si una no funciona</p>
                         </div>
                         """, unsafe_allow_html=True)
                     else:
