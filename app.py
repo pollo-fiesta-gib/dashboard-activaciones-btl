@@ -53,40 +53,6 @@ def limpiar_ticket(valor):
                 return None
     return None
 
-def extraer_ubicacion_para_mapa(direccion):
-    if pd.isna(direccion):
-        return "Desconocido"
-    direccion = str(direccion).lower()
-    ubicaciones = {
-        'suba': 'Suba',
-        'engativa': 'Engativa',
-        'kennedy': 'Kennedy',
-        'soacha': 'Soacha',
-        'tunja': 'Tunja',
-        'fusagasuga': 'Fusagasuga',
-        'bosa': 'Bosa',
-        'santa fe': 'Santa Fe',
-        'toberin': 'Toberin',
-        'cabaña': 'Cabaña',
-        'pradera': 'Pradera',
-        'floresta': 'Floresta',
-        'abastos': 'Abastos',
-        'hayuelos': 'Hayuelos',
-        'altos del country': 'Altos del Country',
-        '20 de julio': '20 de Julio',
-        'santa ana': 'Santa Ana',
-        'tintal': 'Tintal',
-        'banderas': 'Banderas',
-        'sogamoso': 'Sogamoso',
-        'chiquinquira': 'Chiquinquirá',
-        'la calera': 'La Calera',
-        'el rosal': 'El Rosal'
-    }
-    for key, value in ubicaciones.items():
-        if key in direccion:
-            return value
-    return "Bogotá"
-
 def convertir_fecha_segura(fecha_str):
     if pd.isna(fecha_str):
         return pd.NaT
@@ -95,10 +61,17 @@ def convertir_fecha_segura(fecha_str):
     except:
         return pd.NaT
 
-def extraer_id_drive(url):
+def convertir_link_google_drive(url):
+    """Convierte un link de Google Drive a formato embed o lo deja como está"""
     if pd.isna(url) or not url:
         return None
     url = str(url)
+    
+    # Si ya es un link de vista previa, dejarlo
+    if 'uc?export=view' in url or 'thumbnail' in url:
+        return url
+    
+    # Buscar el ID del archivo
     patrones = [
         r'[?&]id=([a-zA-Z0-9_-]+)',
         r'open\?id=([a-zA-Z0-9_-]+)',
@@ -107,27 +80,28 @@ def extraer_id_drive(url):
     for patron in patrones:
         match = re.search(patron, url)
         if match:
-            return match.group(1)
-    return None
+            file_id = match.group(1)
+            return f"https://drive.google.com/uc?export=view&id={file_id}"
+    
+    # Si no se pudo extraer ID, devolver el link original
+    return url
 
 @st.cache_data(ttl=3600)
 def cargar_datos():
     try:
         df = pd.read_csv(SHEET_URL)
         
-        # ===== NOMBRES EXACTOS DE COLUMNAS (CORREGIDO) =====
-        # Ventas - nombre exacto de la columna
+        # Ventas
         col_ventas = 'Ventas netas aproximadas (en kilos, poner únicamente cifra)'
         if col_ventas in df.columns:
             df['Ventas_netas_limpias'] = df[col_ventas].apply(limpiar_ventas)
         else:
-            # Buscar por nombre parcial
             for col in df.columns:
                 if 'Ventas netas' in col or 'ventas' in col.lower():
                     df['Ventas_netas_limpias'] = df[col].apply(limpiar_ventas)
                     break
         
-        # Ticket - nombre exacto de la columna
+        # Ticket
         col_ticket = 'Ticket promedio estimado?'
         if col_ticket in df.columns:
             df['Ticket_limpo'] = df[col_ticket].apply(limpiar_ticket)
@@ -137,12 +111,7 @@ def cargar_datos():
                     df['Ticket_limpo'] = df[col].apply(limpiar_ticket)
                     break
         
-        # Ubicación - nombre exacto de la columna
-        col_ubicacion = 'Lugar / Dirección del punto (ejm. PDV Cabaña, Asadero Sede 1 Suba, Jumbo 170, etc)'
-        if col_ubicacion in df.columns:
-            df['Ubicacion_mapa'] = df[col_ubicacion].apply(extraer_ubicacion_para_mapa)
-        
-        # Detectar incidencias - usar columnas que existen
+        # Detectar incidencias
         columnas_incidencias = []
         for col in df.columns:
             if 'Observaciones' in col or 'novedad' in col.lower() or 'Oportunidades' in col or 'mejora' in col.lower():
@@ -178,6 +147,13 @@ def cargar_datos():
         if col_fecha in df.columns:
             df['Fecha'] = df[col_fecha].apply(convertir_fecha_segura)
             df = df.dropna(subset=['Fecha'])
+        
+        # Procesar links de fotos para que sean clickeables
+        for col in df.columns:
+            if 'Foto' in col and 'lineal' in col.lower():
+                df[col + '_link'] = df[col].apply(convertir_link_google_drive)
+            if 'Firma' in col:
+                df[col + '_link'] = df[col].apply(convertir_link_google_drive)
         
         return df
     except Exception as e:
@@ -313,79 +289,7 @@ if df is not None and len(df) > 0:
         else:
             st.info("No hay datos disponibles")
     
-    # ==================== MAPA ====================
-    if len(df_filtrado) > 0:
-        st.markdown("---")
-        st.subheader("📍 Mapa de Activaciones")
-        
-        if 'Ubicacion_mapa' in df_filtrado.columns:
-            coordenadas = {
-                'Suba': {'lat': 4.7407, 'lon': -74.0830},
-                'Engativa': {'lat': 4.7000, 'lon': -74.1000},
-                'Kennedy': {'lat': 4.6600, 'lon': -74.1500},
-                'Soacha': {'lat': 4.5800, 'lon': -74.2200},
-                'Tunja': {'lat': 5.5300, 'lon': -73.3600},
-                'Fusagasuga': {'lat': 4.3400, 'lon': -74.3600},
-                'Bosa': {'lat': 4.6100, 'lon': -74.1900},
-                'Santa Fe': {'lat': 4.6100, 'lon': -74.0700},
-                'Toberin': {'lat': 4.6600, 'lon': -74.1300},
-                'Cabaña': {'lat': 4.7000, 'lon': -74.0800},
-                'Pradera': {'lat': 4.6700, 'lon': -74.1200},
-                'Floresta': {'lat': 4.6800, 'lon': -74.0900},
-                'Abastos': {'lat': 4.6500, 'lon': -74.1100},
-                'Hayuelos': {'lat': 4.7200, 'lon': -74.1600},
-                'Altos del Country': {'lat': 4.7100, 'lon': -74.0300},
-                'Bogotá': {'lat': 4.7110, 'lon': -74.0721},
-                '20 de Julio': {'lat': 4.6200, 'lon': -74.1100},
-                'Santa Ana': {'lat': 4.6900, 'lon': -74.0700},
-                'Tintal': {'lat': 4.6800, 'lon': -74.1800},
-                'Banderas': {'lat': 4.7000, 'lon': -74.1200},
-                'Sogamoso': {'lat': 5.5300, 'lon': -73.3600},
-                'Chiquinquirá': {'lat': 5.6300, 'lon': -73.8200},
-                'La Calera': {'lat': 4.7200, 'lon': -73.9800},
-                'El Rosal': {'lat': 4.8500, 'lon': -74.2600}
-            }
-            
-            df_filtrado['Latitud'] = 4.7110
-            df_filtrado['Longitud'] = -74.0721
-            
-            for ubicacion, coords in coordenadas.items():
-                mascara = df_filtrado['Ubicacion_mapa'] == ubicacion
-                if mascara.sum() > 0:
-                    df_filtrado.loc[mascara, 'Latitud'] = coords['lat']
-                    df_filtrado.loc[mascara, 'Longitud'] = coords['lon']
-            
-            color_col = 'Activador de Marca' if 'Activador de Marca' in df_filtrado.columns else None
-            
-            fig_mapa = px.scatter_mapbox(
-                df_filtrado,
-                lat="Latitud",
-                lon="Longitud",
-                hover_name=color_col if color_col else None,
-                hover_data={
-                    'Ubicacion_mapa': True,
-                    'Lugar / Dirección del punto (ejm. PDV Cabaña, Asadero Sede 1 Suba, Jumbo 170, etc)': True,
-                    'Canal de Activación': True,
-                    '¿Se cumplió la meta?': True
-                } if 'Canal de Activación' in df_filtrado.columns else None,
-                color=color_col if color_col else None,
-                size=[15] * len(df_filtrado),
-                zoom=9,
-                title="Ubicación de activaciones en Bogotá y alrededores",
-                color_discrete_sequence=['#FF4B4B', '#4B9EFF'] if color_col else None
-            )
-            
-            fig_mapa.update_layout(
-                mapbox_style="open-street-map",
-                height=500,
-                margin=dict(l=0, r=0, t=50, b=0)
-            )
-            
-            st.plotly_chart(fig_mapa, use_container_width=True)
-        else:
-            st.info("No hay datos de ubicación disponibles para el mapa")
-    
-    # ==================== GRÁFICOS ADICIONALES ====================
+    # ==================== GRÁFICOS ADICIONALES (SIN MAPA) ====================
     if len(df_filtrado) > 0:
         st.markdown("---")
         st.subheader("📈 Análisis de Desempeño")
@@ -540,11 +444,22 @@ if df is not None and len(df) > 0:
             else:
                 st.success("✅ No se detectaron incidencias en las activaciones")
     
-    # ==================== VISOR DE FOTOS ====================
+    # ==================== VISOR DE FOTOS MEJORADO ====================
     if len(df_filtrado) > 0:
         st.markdown("---")
         st.subheader("📸 Visor de Fotos - Evidencia en Campo")
         
+        # Encontrar las columnas de fotos y firmas
+        col_foto = None
+        col_firma = None
+        
+        for col in df_filtrado.columns:
+            if 'Foto' in col and ('lineal' in col.lower() or 'vitrina' in col.lower()):
+                col_foto = col
+            if 'Firma' in col:
+                col_firma = col
+        
+        # Preparar opciones
         opciones = []
         indices = []
         for idx, row in df_filtrado.iterrows():
@@ -567,53 +482,45 @@ if df is not None and len(df) > 0:
                 idx = indices[seleccion_idx]
                 row = df_filtrado.iloc[idx]
                 
+                # Mostrar enlaces a las fotos
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     st.markdown("**📸 Foto del Lineal o Vitrina**")
-                    # Buscar la columna de foto
-                    col_foto = None
-                    for col in df_filtrado.columns:
-                        if 'Foto' in col and 'lineal' in col.lower():
-                            col_foto = col
-                            break
-                    
                     if col_foto and col_foto in row and pd.notna(row[col_foto]):
                         url_foto = row[col_foto]
-                        file_id = extraer_id_drive(url_foto)
-                        if file_id:
-                            embed_url = f"https://drive.google.com/uc?export=view&id={file_id}"
-                            try:
-                                st.image(embed_url, use_container_width=True)
-                            except:
-                                st.markdown(f"🔗 [Ver foto en Google Drive]({url_foto})")
-                        else:
-                            st.markdown(f"🔗 [Ver foto en Google Drive]({url_foto})")
+                        # Intentar convertir a formato embed
+                        url_embed = convertir_link_google_drive(url_foto)
+                        # Mostrar como enlace clickeable
+                        st.markdown(f"""
+                        <div style="background-color: #f0f2f6; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #ddd;">
+                            <p style="font-size: 14px; color: #666;">🖼️ Haz clic en el botón para ver la foto</p>
+                            <a href="{url_foto}" target="_blank" style="display: inline-block; background-color: #FF4B4B; color: white; padding: 10px 25px; border-radius: 5px; text-decoration: none; font-weight: bold;">
+                                📷 Ver foto en Google Drive
+                            </a>
+                            <p style="font-size: 12px; color: #999; margin-top: 8px;">Se abrirá en una nueva pestaña</p>
+                        </div>
+                        """, unsafe_allow_html=True)
                     else:
-                        st.info("📷 No hay foto disponible")
+                        st.info("📷 No hay foto disponible para esta activación")
                 
                 with col2:
                     st.markdown("**✍️ Firma del Administrador**")
-                    col_firma = None
-                    for col in df_filtrado.columns:
-                        if 'Firma' in col:
-                            col_firma = col
-                            break
-                    
                     if col_firma and col_firma in row and pd.notna(row[col_firma]):
                         url_firma = row[col_firma]
-                        file_id = extraer_id_drive(url_firma)
-                        if file_id:
-                            embed_url = f"https://drive.google.com/uc?export=view&id={file_id}"
-                            try:
-                                st.image(embed_url, use_container_width=True)
-                            except:
-                                st.markdown(f"🔗 [Ver firma en Google Drive]({url_firma})")
-                        else:
-                            st.markdown(f"🔗 [Ver firma en Google Drive]({url_firma})")
+                        st.markdown(f"""
+                        <div style="background-color: #f0f2f6; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #ddd;">
+                            <p style="font-size: 14px; color: #666;">✍️ Haz clic en el botón para ver la firma</p>
+                            <a href="{url_firma}" target="_blank" style="display: inline-block; background-color: #4B9EFF; color: white; padding: 10px 25px; border-radius: 5px; text-decoration: none; font-weight: bold;">
+                                📝 Ver firma en Google Drive
+                            </a>
+                            <p style="font-size: 12px; color: #999; margin-top: 8px;">Se abrirá en una nueva pestaña</p>
+                        </div>
+                        """, unsafe_allow_html=True)
                     else:
-                        st.info("✍️ No hay firma disponible")
+                        st.info("✍️ No hay firma disponible para esta activación")
                 
+                # Detalles de la activación
                 with st.expander("📋 Ver detalles completos de la activación"):
                     detalles = {
                         'Campo': ['Activador', 'Canal', 'Ubicación', 'Fecha', 'Cumplió meta', 'Ventas (kg)', 'Ticket promedio', 'Incidencias'],
@@ -630,6 +537,8 @@ if df is not None and len(df) > 0:
                     }
                     df_detalles = pd.DataFrame(detalles)
                     st.dataframe(df_detalles, use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay activaciones disponibles para mostrar")
     
     # ==================== TABLA COMPLETA ====================
     if len(df_filtrado) > 0:
