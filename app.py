@@ -17,69 +17,57 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/1fFcgK4ikmaEDXXesAc7wljONAyY
 
 # Funciones de limpieza
 def limpiar_ventas(valor):
-    """Extrae números de strings como '150 kls', '80 kl', etc."""
     if pd.isna(valor):
         return None
     if isinstance(valor, (int, float)):
         return float(valor)
-    # Extraer el primer número encontrado
     numeros = re.findall(r'[\d,]+', str(valor))
     if numeros:
-        # Limpiar comas y convertir a float
         return float(numeros[0].replace(',', ''))
     return None
 
 def limpiar_ticket(valor):
-    """Limpia valores de ticket promedio."""
     if pd.isna(valor):
         return None
     if isinstance(valor, (int, float)):
         return float(valor)
-    # Limpiar caracteres no numéricos
     limpio = re.sub(r'[^\d,]', '', str(valor))
     if limpio:
         return float(limpio.replace(',', ''))
     return None
 
 def extraer_nombre_lugar(direccion):
-    """Intenta extraer el nombre del lugar de la dirección."""
     if pd.isna(direccion):
         return "Ubicación desconocida"
-    # Palabras clave para identificar lugares
     lugares = ['Jumbo', 'Metro', 'PDV', 'Merkacol', 'Supertiendas', 'Plaza', 'Camacho', 'Avicola']
     for lugar in lugares:
         if lugar.lower() in str(direccion).lower():
             return lugar
-    # Si no coincide con ninguno, devolver la dirección truncada
     return str(direccion)[:30]
 
-# Función para convertir fechas de forma segura
 def convertir_fecha_segura(fecha_str):
-    """Convierte fechas de forma segura manejando errores."""
     if pd.isna(fecha_str):
         return pd.NaT
     try:
-        # Intentar diferentes formatos
         for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y']:
             try:
                 return pd.to_datetime(fecha_str, format=fmt)
             except:
                 continue
-        # Si ningún formato funciona, usar el genérico
         return pd.to_datetime(fecha_str, errors='coerce')
     except:
         return pd.NaT
 
-# Función para cargar datos
 @st.cache_data(ttl=3600)
 def cargar_datos():
     try:
         df = pd.read_csv(SHEET_URL)
         
-        # Limpiar datos
+        # Limpiar ventas
         if 'Ventas netas aproximadas' in df.columns:
             df['Ventas_netas_limpias'] = df['Ventas netas aproximadas'].apply(limpiar_ventas)
         
+        # Limpiar ticket
         if 'Ticket promedio estimado' in df.columns:
             df['Ticket_limpo'] = df['Ticket promedio estimado'].apply(limpiar_ticket)
         
@@ -87,7 +75,7 @@ def cargar_datos():
         if 'Lugar / Dirección del punto' in df.columns:
             df['Lugar_nombre'] = df['Lugar / Dirección del punto'].apply(extraer_nombre_lugar)
         
-        # Crear columna de incidencias combinadas
+        # Detectar incidencias
         columnas_incidencias = [
             'Observaciones del estado inicial',
             '¿Alguna novedad relevante durante la activación?',
@@ -99,7 +87,6 @@ def cargar_datos():
             if col in df.columns:
                 df['Texto_completo'] = df['Texto_completo'].fillna('') + ' ' + df[col].fillna('')
         
-        # Detectar incidencias
         incidencias_keywords = {
             'lluvia': ['lluvia', 'lluvioso', 'lloviendo'],
             'clima adverso': ['clima', 'frío', 'calor', 'temperatura'],
@@ -120,10 +107,9 @@ def cargar_datos():
                         break
             df.at[idx, 'Incidencias_detectadas'] = ', '.join(set(incidencias)) if incidencias else 'Sin incidencias'
         
-        # ===== CONVERSIÓN SEGURA DE FECHAS (CORREGIDO) =====
+        # Convertir fechas
         if 'Fecha de Activación' in df.columns:
             df['Fecha'] = df['Fecha de Activación'].apply(convertir_fecha_segura)
-            # Eliminar filas con fechas inválidas
             df = df.dropna(subset=['Fecha'])
         
         return df
@@ -135,7 +121,6 @@ def cargar_datos():
 df = cargar_datos()
 
 if df is not None and len(df) > 0:
-    # Mostrar datos cargados
     st.success(f"✅ Datos cargados correctamente - {len(df)} activaciones registradas")
     
     # ==================== FILTROS ====================
@@ -238,7 +223,7 @@ if df is not None and len(df) > 0:
             fig1.update_traces(textposition='outside')
             st.plotly_chart(fig1, use_container_width=True)
         else:
-            st.info("Columna 'Activador de Marca' no encontrada o sin datos")
+            st.info("Datos no disponibles")
     
     with col2:
         st.subheader("🏪 Activaciones por Canal")
@@ -254,16 +239,14 @@ if df is not None and len(df) > 0:
             )
             st.plotly_chart(fig2, use_container_width=True)
         else:
-            st.info("Columna 'Canal de Activación' no encontrada o sin datos")
+            st.info("Datos no disponibles")
     
-    # ==================== MAPA DE ACTIVACIONES ====================
+    # ==================== MAPA ====================
     if len(df_filtrado) > 0:
         st.markdown("---")
         st.subheader("📍 Mapa de Activaciones")
         
-        # Crear datos para el mapa (simulado con coordenadas aproximadas de Bogotá)
         if 'Lugar / Dirección del punto' in df_filtrado.columns:
-            # Mapeo de ubicaciones a coordenadas aproximadas (Bogotá)
             ubicaciones_conocidas = {
                 'Suba': {'lat': 4.7407, 'lon': -74.0830},
                 'Engativa': {'lat': 4.7000, 'lon': -74.1000},
@@ -282,8 +265,7 @@ if df is not None and len(df) > 0:
                 'Altos del Country': {'lat': 4.7100, 'lon': -74.0300}
             }
             
-            # Asignar coordenadas basadas en el nombre del lugar
-            df_filtrado['Latitud'] = 4.7110  # Centro de Bogotá por defecto
+            df_filtrado['Latitud'] = 4.7110
             df_filtrado['Longitud'] = -74.0721
             
             for ubicacion, coords in ubicaciones_conocidas.items():
@@ -291,18 +273,17 @@ if df is not None and len(df) > 0:
                 df_filtrado.loc[mascara, 'Latitud'] = coords['lat']
                 df_filtrado.loc[mascara, 'Longitud'] = coords['lon']
             
-            # Crear mapa con Plotly
             fig_mapa = px.scatter_mapbox(
                 df_filtrado,
                 lat="Latitud",
                 lon="Longitud",
-                hover_name="Activador de Marca",
+                hover_name="Activador de Marca" if 'Activador de Marca' in df_filtrado.columns else None,
                 hover_data={
                     'Lugar / Dirección del punto': True,
                     'Canal de Activación': True,
                     '¿Se cumplió la meta?': True
-                },
-                color="Activador de Marca",
+                } if 'Canal de Activación' in df_filtrado.columns else None,
+                color="Activador de Marca" if 'Activador de Marca' in df_filtrado.columns else None,
                 size_max=15,
                 zoom=9,
                 title="Ubicación de activaciones en Bogotá y alrededores"
@@ -316,15 +297,15 @@ if df is not None and len(df) > 0:
             st.plotly_chart(fig_mapa, use_container_width=True)
         else:
             st.info("No se encontró la columna de ubicación para el mapa")
-        
-        # ==================== GRÁFICOS ADICIONALES ====================
+    
+    # ==================== GRÁFICOS ADICIONALES ====================
+    if len(df_filtrado) > 0:
         st.markdown("---")
         st.subheader("📈 Análisis de Desempeño")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            # Ventas por día
             if 'Fecha' in df_filtrado.columns and 'Ventas_netas_limpias' in df_filtrado.columns:
                 ventas_por_dia = df_filtrado.groupby(df_filtrado['Fecha'].dt.date)['Ventas_netas_limpias'].sum().reset_index()
                 ventas_por_dia.columns = ['Fecha', 'Ventas (kg)']
@@ -344,9 +325,7 @@ if df is not None and len(df) > 0:
                 st.info("Datos de ventas por día no disponibles")
         
         with col2:
-            # Ticket promedio
             if 'Ticket_limpo' in df_filtrado.columns:
-                # Eliminar valores nulos o cero
                 tickets = df_filtrado['Ticket_limpo'].dropna()
                 tickets = tickets[tickets > 0]
                 
@@ -362,7 +341,7 @@ if df is not None and len(df) > 0:
             else:
                 st.info("Datos de ticket promedio no disponibles")
     
-    # ==================== ANÁLISIS DE CUMPLIMIENTO ====================
+    # ==================== CUMPLIMIENTO ====================
     if len(df_filtrado) > 0:
         st.markdown("---")
         st.subheader("📊 Análisis de Cumplimiento de Meta")
@@ -398,17 +377,14 @@ if df is not None and len(df) > 0:
                 fig4.update_layout(yaxis_range=[0, 100])
                 st.plotly_chart(fig4, use_container_width=True)
     
-    # ==================== BLINDAJE AVANZADO ====================
+    # ==================== BLINDAJE ====================
     if len(df_filtrado) > 0:
         st.markdown("---")
         st.subheader("🛡️ Análisis de Incidencias (Blindaje)")
         
         if 'Incidencias_detectadas' in df_filtrado.columns:
-            # Contar incidencias
             incidencias_count = df_filtrado['Incidencias_detectadas'].value_counts().reset_index()
             incidencias_count.columns = ['Incidencia', 'Frecuencia']
-            
-            # Filtrar "Sin incidencias"
             incidencias_count = incidencias_count[incidencias_count['Incidencia'] != 'Sin incidencias']
             
             if len(incidencias_count) > 0:
@@ -426,10 +402,12 @@ if df is not None and len(df) > 0:
                 with col2:
                     st.subheader("📋 Activaciones con Incidencias")
                     
-                    df_incidencias_detalle = df_filtrado[df_filtrado['Incidencias_detectadas'] != 'Sin incidencias'][
-                        ['Fecha de Activación', 'Activador de Marca', 'Canal de Activación', 
-                         'Lugar / Dirección del punto', '¿Se cumplió la meta?', 'Incidencias_detectadas']
-                    ].copy()
+                    # ===== CORRECCIÓN: Solo usar columnas que existen =====
+                    columnas_disponibles = ['Fecha de Activación', 'Activador de Marca', 'Canal de Activación', 
+                                           'Lugar / Dirección del punto', '¿Se cumplió la meta?', 'Incidencias_detectadas']
+                    columnas_existentes = [col for col in columnas_disponibles if col in df_filtrado.columns]
+                    
+                    df_incidencias_detalle = df_filtrado[df_filtrado['Incidencias_detectadas'] != 'Sin incidencias'][columnas_existentes].copy()
                     
                     if len(df_incidencias_detalle) > 20:
                         st.warning(f"Mostrando 20 de {len(df_incidencias_detalle)} activaciones con incidencias")
@@ -437,9 +415,10 @@ if df is not None and len(df) > 0:
                     
                     st.dataframe(df_incidencias_detalle, use_container_width=True)
                     
-                    blindadas = df_incidencias_detalle[df_incidencias_detalle['¿Se cumplió la meta?'] == 'Si']
-                    if len(blindadas) > 0:
-                        st.success(f"🛡️ {len(blindadas)} activaciones tuvieron incidencias pero cumplieron la meta - ¡Activadores blindados!")
+                    if '¿Se cumplió la meta?' in df_incidencias_detalle.columns:
+                        blindadas = df_incidencias_detalle[df_incidencias_detalle['¿Se cumplió la meta?'] == 'Si']
+                        if len(blindadas) > 0:
+                            st.success(f"🛡️ {len(blindadas)} activaciones tuvieron incidencias pero cumplieron la meta - ¡Activadores blindados!")
             else:
                 st.info("✅ No se detectaron incidencias en las activaciones")
     
