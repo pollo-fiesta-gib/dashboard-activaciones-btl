@@ -4,7 +4,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import re
-import calendar
 
 # Configuración de la página
 st.set_page_config(
@@ -13,11 +12,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Título principal - MÁS SIMPLE
+# Título principal
 st.markdown("""
 <div style="text-align: center; padding: 0.5rem 0;">
-    <h1>🎯 Activaciones BTL - Pollo Fiesta</h1>
-    <p style="color: #666; font-size: 0.95rem;">Resumen ejecutivo de activaciones</p>
+    <h1 style="font-size: 2.2rem;">🎯 Activaciones BTL - Pollo Fiesta</h1>
+    <p style="color: #666; font-size: 1rem;">Panel de control ejecutivo</p>
 </div>
 """, unsafe_allow_html=True)
 st.markdown("---")
@@ -62,21 +61,6 @@ def convertir_fecha_segura(fecha_str):
     except:
         return pd.NaT
 
-def extraer_id_drive(url):
-    if pd.isna(url) or not url:
-        return None
-    url = str(url)
-    patrones = [
-        r'[?&]id=([a-zA-Z0-9_-]+)',
-        r'open\?id=([a-zA-Z0-9_-]+)',
-        r'/d/([a-zA-Z0-9_-]+)'
-    ]
-    for patron in patrones:
-        match = re.search(patron, url)
-        if match:
-            return match.group(1)
-    return None
-
 @st.cache_data(ttl=3600)
 def cargar_datos():
     try:
@@ -86,21 +70,11 @@ def cargar_datos():
         col_ventas = 'Ventas netas aproximadas (en kilos, poner únicamente cifra)'
         if col_ventas in df.columns:
             df['Ventas_netas_limpias'] = df[col_ventas].apply(limpiar_ventas)
-        else:
-            for col in df.columns:
-                if 'Ventas netas' in col or 'ventas' in col.lower():
-                    df['Ventas_netas_limpias'] = df[col].apply(limpiar_ventas)
-                    break
         
         # Ticket
         col_ticket = 'Ticket promedio estimado?'
         if col_ticket in df.columns:
             df['Ticket_limpo'] = df[col_ticket].apply(limpiar_ticket)
-        else:
-            for col in df.columns:
-                if 'Ticket' in col or 'ticket' in col.lower():
-                    df['Ticket_limpo'] = df[col].apply(limpiar_ticket)
-                    break
         
         # Detectar incidencias
         columnas_incidencias = []
@@ -114,10 +88,10 @@ def cargar_datos():
         
         incidencias_keywords = {
             '🌧️ Lluvia': ['lluvia', 'lluvioso', 'lloviendo'],
-            '🌡️ Clima': ['clima', 'frío', 'calor', 'temperatura'],
+            '🌡️ Clima': ['clima', 'frío', 'calor'],
             '🏪 Competencia': ['competencia', 'competidor'],
             '👥 Poca afluencia': ['poca afluencia', 'poco público', 'baja afluencia'],
-            '📦 Logística': ['inventario', 'pedido', 'llegó', 'retraso', 'demora'],
+            '📦 Logística': ['inventario', 'pedido', 'retraso', 'demora'],
         }
         
         df['Incidencias_detectadas'] = 'Sin incidencias'
@@ -138,8 +112,6 @@ def cargar_datos():
             df['Fecha'] = df[col_fecha].apply(convertir_fecha_segura)
             df = df.dropna(subset=['Fecha'])
             df['Mes'] = df['Fecha'].dt.strftime('%B %Y')
-            df['Mes_num'] = df['Fecha'].dt.month
-            df['Año'] = df['Fecha'].dt.year
         
         return df
     except Exception as e:
@@ -151,7 +123,7 @@ df = cargar_datos()
 
 if df is not None and len(df) > 0:
     
-    # ==================== FILTROS SIMPLIFICADOS ====================
+    # ==================== FILTROS ====================
     with st.sidebar:
         st.markdown("## 🔍 Filtros")
         
@@ -190,17 +162,18 @@ if df is not None and len(df) > 0:
         df_filtrado = df_filtrado[df_filtrado['Mes'] == mes_seleccionado]
     
     # ==================== KPIs PRINCIPALES ====================
-    st.markdown("## 📊 Resumen")
+    st.markdown("## 📊 Resumen Ejecutivo")
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("📊 Activaciones", len(df_filtrado))
+        st.metric("📋 Activaciones", len(df_filtrado))
     
     with col2:
         if '¿Se cumplió la meta?' in df_filtrado.columns:
             cumplimiento = df_filtrado['¿Se cumplió la meta?'].value_counts(normalize=True).get('Si', 0) * 100
-            st.metric("🎯 Cumplimiento", f"{cumplimiento:.0f}%")
+            color = "🟢" if cumplimiento >= 80 else "🟡" if cumplimiento >= 50 else "🔴"
+            st.metric(f"{color} Cumplimiento", f"{cumplimiento:.0f}%")
         else:
             st.metric("🎯 Cumplimiento", "N/A")
     
@@ -211,8 +184,6 @@ if df is not None and len(df) > 0:
                 st.metric("💰 Ventas (kg)", f"{total_ventas:,.0f}")
             else:
                 st.metric("💰 Ventas (kg)", "Sin datos")
-        else:
-            st.metric("💰 Ventas (kg)", "N/A")
     
     with col4:
         if 'Ticket_limpo' in df_filtrado.columns:
@@ -222,8 +193,60 @@ if df is not None and len(df) > 0:
                 st.metric("💳 Ticket promedio", f"${ticket_promedio.mean():,.0f}")
             else:
                 st.metric("💳 Ticket promedio", "Sin datos")
-        else:
-            st.metric("💳 Ticket promedio", "N/A")
+    
+    st.markdown("---")
+    
+    # ==================== SEMÁFORO DE CUMPLIMIENTO POR CANAL ====================
+    st.markdown("## 🚦 Semáforo de Cumplimiento por Canal")
+    
+    if 'Canal de Activación' in df_filtrado.columns and '¿Se cumplió la meta?' in df_filtrado.columns:
+        # Calcular cumplimiento por canal
+        cumplimiento_canal = df_filtrado.groupby('Canal de Activación')['¿Se cumplió la meta?'].apply(
+            lambda x: (x == 'Si').sum() / len(x) * 100
+        ).reset_index()
+        cumplimiento_canal.columns = ['Canal', 'Cumplimiento %']
+        cumplimiento_canal = cumplimiento_canal.sort_values('Cumplimiento %', ascending=False)
+        
+        # Asignar color según semáforo
+        def get_semaforo(valor):
+            if valor >= 80:
+                return "🟢", "Verde"
+            elif valor >= 50:
+                return "🟡", "Amarillo"
+            else:
+                return "🔴", "Rojo"
+        
+        cumplimiento_canal['Semáforo'], cumplimiento_canal['Estado'] = zip(*cumplimiento_canal['Cumplimiento %'].apply(get_semaforo))
+        
+        # Mostrar como tarjetas
+        cols = st.columns(min(len(cumplimiento_canal), 4))
+        
+        for i, (_, row) in enumerate(cumplimiento_canal.iterrows()):
+            col_idx = i % len(cols)
+            with cols[col_idx]:
+                color_fondo = "#d4edda" if row['Estado'] == "Verde" else "#fff3cd" if row['Estado'] == "Amarillo" else "#f8d7da"
+                color_texto = "#155724" if row['Estado'] == "Verde" else "#856404" if row['Estado'] == "Amarillo" else "#721c24"
+                
+                st.markdown(f"""
+                <div style="background-color:{color_fondo};padding:15px;border-radius:10px;text-align:center;border:2px solid {color_texto};margin:5px 0;">
+                    <h3 style="margin:0;font-size:1.1rem;color:{color_texto};">{row['Canal']}</h3>
+                    <h2 style="margin:5px 0;font-size:2rem;color:{color_texto};">{row['Semáforo']}</h2>
+                    <p style="margin:0;font-size:1.5rem;font-weight:bold;color:{color_texto};">{row['Cumplimiento %']:.0f}%</p>
+                    <p style="margin:5px 0 0 0;font-size:0.8rem;color:{color_texto};">{row['Estado']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # ===== ALERTA: Canales en ROJO =====
+        canales_rojo = cumplimiento_canal[cumplimiento_canal['Estado'] == 'Rojo']
+        if len(canales_rojo) > 0:
+            st.error(f"🔴 **ALERTA:** {len(canales_rojo)} canal(es) en estado ROJO - {', '.join(canales_rojo['Canal'].tolist())}")
+        
+        canales_amarillo = cumplimiento_canal[cumplimiento_canal['Estado'] == 'Amarillo']
+        if len(canales_amarillo) > 0:
+            st.warning(f"🟡 **ATENCIÓN:** {len(canales_amarillo)} canal(es) en estado AMARILLO - {', '.join(canales_amarillo['Canal'].tolist())}")
+        
+        if len(canales_rojo) == 0 and len(canales_amarillo) == 0:
+            st.success("🟢 **¡Todos los canales están en VERDE! Excelente desempeño.**")
     
     st.markdown("---")
     
@@ -240,13 +263,12 @@ if df is not None and len(df) > 0:
                 conteo_activadores,
                 x='Activador',
                 y='Número',
-                title="",
                 color='Activador',
                 text='Número',
                 color_discrete_sequence=['#FF4B4B', '#4B9EFF']
             )
             fig1.update_traces(textposition='outside')
-            fig1.update_layout(showlegend=False, height=300)
+            fig1.update_layout(showlegend=False, height=350, xaxis_title="", yaxis_title="")
             st.plotly_chart(fig1, use_container_width=True)
     
     with col2:
@@ -259,65 +281,17 @@ if df is not None and len(df) > 0:
                 conteo_canal,
                 names='Canal',
                 values='Número',
-                title="",
                 color_discrete_sequence=px.colors.qualitative.Set3,
                 hole=0.3
             )
-            fig2.update_layout(height=300)
+            fig2.update_layout(height=350)
             st.plotly_chart(fig2, use_container_width=True)
-    
-    st.markdown("---")
-    
-    # ==================== CUMPLIMIENTO POR CANAL ====================
-    st.subheader("📊 Cumplimiento de Meta por Canal")
-    
-    if 'Canal de Activación' in df_filtrado.columns and '¿Se cumplió la meta?' in df_filtrado.columns:
-        cumplimiento_canal = df_filtrado.groupby('Canal de Activación')['¿Se cumplió la meta?'].value_counts().unstack().fillna(0)
-        
-        cumplimiento_canal['Total'] = cumplimiento_canal.sum(axis=1)
-        for col in cumplimiento_canal.columns:
-            if col != 'Total':
-                cumplimiento_canal[f'{col}_%'] = (cumplimiento_canal[col] / cumplimiento_canal['Total'] * 100).round(1)
-        
-        if 'Si_%' in cumplimiento_canal.columns:
-            cumplimiento_canal = cumplimiento_canal.sort_values('Si_%', ascending=False)
-        
-        st.dataframe(
-            cumplimiento_canal,
-            use_container_width=True,
-            height=250,
-            column_config={
-                "Si_%": st.column_config.ProgressColumn(
-                    "✅ Cumplió",
-                    format="%.1f%%",
-                    min_value=0,
-                    max_value=100,
-                ),
-                "No_%": st.column_config.ProgressColumn(
-                    "❌ No cumplió",
-                    format="%.1f%%",
-                    min_value=0,
-                    max_value=100,
-                ),
-                "Parcialmente_%": st.column_config.ProgressColumn(
-                    "🟡 Parcial",
-                    format="%.1f%%",
-                    min_value=0,
-                    max_value=100,
-                )
-            }
-        )
-        
-        if 'No' in cumplimiento_canal.columns and 'Total' in cumplimiento_canal.columns:
-            canales_con_no = cumplimiento_canal[cumplimiento_canal['No'] > 0]
-            if len(canales_con_no) > 0:
-                st.warning(f"⚠️ **Canales con más 'No cumplimiento':** {', '.join(canales_con_no.index.tolist())}")
     
     st.markdown("---")
     
     # ==================== VENTAS POR DÍA ====================
     if len(df_filtrado) > 0:
-        st.subheader("📈 Ventas por día")
+        st.subheader("📈 Tendencia de Ventas")
         
         if 'Fecha' in df_filtrado.columns and 'Ventas_netas_limpias' in df_filtrado.columns:
             ventas_por_dia = df_filtrado.groupby(df_filtrado['Fecha'].dt.date)['Ventas_netas_limpias'].sum().reset_index()
@@ -330,7 +304,6 @@ if df is not None and len(df) > 0:
                     ventas_por_dia,
                     x='Fecha',
                     y='Ventas (kg)',
-                    title="",
                     markers=True,
                     color_discrete_sequence=['#4B9EFF']
                 )
@@ -341,9 +314,9 @@ if df is not None and len(df) > 0:
     
     st.markdown("---")
     
-    # ==================== BLINDAJE ====================
+    # ==================== INCIDENCIAS ====================
     if len(df_filtrado) > 0:
-        st.subheader("🛡️ Incidencias detectadas")
+        st.subheader("🛡️ Resumen de Incidencias")
         
         if 'Incidencias_detectadas' in df_filtrado.columns:
             incidencias_count = df_filtrado['Incidencias_detectadas'].value_counts().reset_index()
@@ -358,7 +331,6 @@ if df is not None and len(df) > 0:
                         incidencias_count,
                         names='Incidencia',
                         values='Frecuencia',
-                        title="",
                         color_discrete_sequence=px.colors.qualitative.Set3
                     )
                     fig_incidencias.update_layout(height=250)
@@ -369,120 +341,45 @@ if df is not None and len(df) > 0:
                         st.markdown(f"**{row['Incidencia']}**: {row['Frecuencia']} casos")
                     
                     if '¿Se cumplió la meta?' in df_filtrado.columns:
-                        blindadas = df_filtrado[(df_filtrado['Incidencias_detectadas'] != 'Sin incidencias') & (df_filtrado['¿Se cumplió la meta?'] == 'Si')]
+                        blindadas = df_filtrado[
+                            (df_filtrado['Incidencias_detectadas'] != 'Sin incidencias') & 
+                            (df_filtrado['¿Se cumplió la meta?'] == 'Si')
+                        ]
                         if len(blindadas) > 0:
-                            st.success(f"🛡️ **{len(blindadas)} activaciones** tuvieron incidencias pero cumplieron la meta")
+                            st.success(f"🛡️ **{len(blindadas)} activaciones** con incidencias pero cumplieron la meta")
             else:
                 st.success("✅ No se detectaron incidencias")
     
     st.markdown("---")
     
-    # ==================== VISOR DE FOTOS CORREGIDO ====================
-    if len(df_filtrado) > 0:
-        st.subheader("📸 Ver evidencia en campo")
+    # ==================== TABLA RESUMEN ====================
+    with st.expander("📋 Ver detalle de activaciones"):
+        columnas_mostrar = [
+            'Fecha de Activación',
+            'Activador de Marca',
+            'Canal de Activación',
+            'Lugar / Dirección del punto (ejm. PDV Cabaña, Asadero Sede 1 Suba, Jumbo 170, etc)',
+            '¿Se cumplió la meta?',
+            'Ventas_netas_limpias',
+            'Incidencias_detectadas'
+        ]
         
-        col_foto = None
-        col_firma = None
+        columnas_existentes = [col for col in columnas_mostrar if col in df_filtrado.columns]
         
-        for col in df_filtrado.columns:
-            if 'Foto' in col and ('lineal' in col.lower() or 'vitrina' in col.lower()):
-                col_foto = col
-            if 'Firma' in col:
-                col_firma = col
-        
-        # Preparar opciones usando el índice real de pandas
-        opciones = []
-        for idx in df_filtrado.index:
-            row = df_filtrado.loc[idx]
-            fecha = row.get('Fecha de Activación', 'Sin fecha')
-            activador = row.get('Activador de Marca', 'Sin activador')
-            lugar = row.get('Lugar / Dirección del punto (ejm. PDV Cabaña, Asadero Sede 1 Suba, Jumbo 170, etc)', 'Sin lugar')
-            if len(str(lugar)) > 30:
-                lugar = str(lugar)[:30] + "..."
-            opciones.append(f"{fecha} | {activador} | {lugar}")
-        
-        if opciones:
-            seleccion_idx = st.selectbox(
-                "Selecciona una activación:",
-                options=range(len(opciones)),
-                format_func=lambda i: opciones[i]
-            )
+        if columnas_existentes:
+            df_tabla = df_filtrado[columnas_existentes].copy()
+            renombres = {
+                'Fecha de Activación': '📅 Fecha',
+                'Activador de Marca': '👤 Activador',
+                'Canal de Activación': '🏪 Canal',
+                'Lugar / Dirección del punto (ejm. PDV Cabaña, Asadero Sede 1 Suba, Jumbo 170, etc)': '📍 Ubicación',
+                '¿Se cumplió la meta?': '✅ Meta',
+                'Ventas_netas_limpias': '💰 Ventas (kg)',
+                'Incidencias_detectadas': '⚠️ Incidencias'
+            }
+            df_tabla = df_tabla.rename(columns={k: v for k, v in renombres.items() if k in df_tabla.columns})
             
-            if seleccion_idx is not None:
-                idx_real = df_filtrado.index[seleccion_idx]
-                row = df_filtrado.loc[idx_real]
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown("**📸 Foto del Lineal**")
-                    if col_foto and col_foto in row and pd.notna(row[col_foto]):
-                        url_foto = row[col_foto]
-                        file_id = extraer_id_drive(url_foto)
-                        if file_id:
-                            link = f"https://drive.google.com/open?id={file_id}"
-                            st.markdown(f"""
-                            <div style="background:#f0f2f6;padding:12px;border-radius:8px;text-align:center;">
-                                <a href="{link}" target="_blank" style="background:#FF4B4B;color:white;padding:8px 20px;border-radius:5px;text-decoration:none;display:inline-block;">
-                                    📷 Ver foto en Drive
-                                </a>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"[Ver foto]({url_foto})")
-                    else:
-                        st.info("📷 No hay foto disponible")
-                
-                with col2:
-                    st.markdown("**✍️ Firma del Administrador**")
-                    if col_firma and col_firma in row and pd.notna(row[col_firma]):
-                        url_firma = row[col_firma]
-                        file_id = extraer_id_drive(url_firma)
-                        if file_id:
-                            link = f"https://drive.google.com/open?id={file_id}"
-                            st.markdown(f"""
-                            <div style="background:#f0f2f6;padding:12px;border-radius:8px;text-align:center;">
-                                <a href="{link}" target="_blank" style="background:#4B9EFF;color:white;padding:8px 20px;border-radius:5px;text-decoration:none;display:inline-block;">
-                                    📝 Ver firma en Drive
-                                </a>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"[Ver firma]({url_firma})")
-                    else:
-                        st.info("✍️ No hay firma disponible")
-    
-    # ==================== TABLA COMPLETA ====================
-    if len(df_filtrado) > 0:
-        with st.expander("📋 Ver tabla completa de activaciones"):
-            columnas_mostrar = [
-                'Fecha de Activación',
-                'Activador de Marca',
-                'Canal de Activación',
-                'Lugar / Dirección del punto (ejm. PDV Cabaña, Asadero Sede 1 Suba, Jumbo 170, etc)',
-                '¿Se cumplió la meta?',
-                'Ventas_netas_limpias',
-                'Ticket_limpo',
-                'Incidencias_detectadas'
-            ]
-            
-            columnas_existentes = [col for col in columnas_mostrar if col in df_filtrado.columns]
-            
-            if columnas_existentes:
-                df_tabla = df_filtrado[columnas_existentes].copy()
-                renombres = {
-                    'Fecha de Activación': '📅 Fecha',
-                    'Activador de Marca': '👤 Activador',
-                    'Canal de Activación': '🏪 Canal',
-                    'Lugar / Dirección del punto (ejm. PDV Cabaña, Asadero Sede 1 Suba, Jumbo 170, etc)': '📍 Ubicación',
-                    '¿Se cumplió la meta?': '✅ Meta',
-                    'Ventas_netas_limpias': '💰 Ventas (kg)',
-                    'Ticket_limpo': '💳 Ticket ($)',
-                    'Incidencias_detectadas': '⚠️ Incidencias'
-                }
-                df_tabla = df_tabla.rename(columns={k: v for k, v in renombres.items() if k in df_tabla.columns})
-                
-                st.dataframe(df_tabla, use_container_width=True, height=300)
+            st.dataframe(df_tabla, use_container_width=True, height=300)
     
     # ==================== PIE DE PÁGINA ====================
     st.markdown("---")
@@ -490,4 +387,3 @@ if df is not None and len(df) > 0:
 
 else:
     st.error("❌ No se pudieron cargar los datos. Verifica la URL de Google Sheets.")
-    st.info("Asegúrate de que el archivo esté compartido como 'Cualquier persona con el enlace puede ver'")
