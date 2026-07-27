@@ -61,6 +61,17 @@ def convertir_fecha_segura(fecha_str):
     except:
         return pd.NaT
 
+def get_semaforo(valor):
+    """Retorna emoji y color según cumplimiento"""
+    if valor == 'Si':
+        return "🟢", "#d4edda", "#155724"
+    elif valor == 'Parcialmente':
+        return "🟡", "#fff3cd", "#856404"
+    elif valor == 'No':
+        return "🔴", "#f8d7da", "#721c24"
+    else:
+        return "⚪", "#f8f9fa", "#6c757d"
+
 @st.cache_data(ttl=3600)
 def cargar_datos():
     try:
@@ -200,15 +211,13 @@ if df is not None and len(df) > 0:
     st.markdown("## 🚦 Semáforo de Cumplimiento por Canal")
     
     if 'Canal de Activación' in df_filtrado.columns and '¿Se cumplió la meta?' in df_filtrado.columns:
-        # Calcular cumplimiento por canal
         cumplimiento_canal = df_filtrado.groupby('Canal de Activación')['¿Se cumplió la meta?'].apply(
             lambda x: (x == 'Si').sum() / len(x) * 100
         ).reset_index()
         cumplimiento_canal.columns = ['Canal', 'Cumplimiento %']
         cumplimiento_canal = cumplimiento_canal.sort_values('Cumplimiento %', ascending=False)
         
-        # Asignar color según semáforo
-        def get_semaforo(valor):
+        def get_semaforo_canal(valor):
             if valor >= 80:
                 return "🟢", "Verde"
             elif valor >= 50:
@@ -216,9 +225,8 @@ if df is not None and len(df) > 0:
             else:
                 return "🔴", "Rojo"
         
-        cumplimiento_canal['Semáforo'], cumplimiento_canal['Estado'] = zip(*cumplimiento_canal['Cumplimiento %'].apply(get_semaforo))
+        cumplimiento_canal['Semáforo'], cumplimiento_canal['Estado'] = zip(*cumplimiento_canal['Cumplimiento %'].apply(get_semaforo_canal))
         
-        # Mostrar como tarjetas
         cols = st.columns(min(len(cumplimiento_canal), 4))
         
         for i, (_, row) in enumerate(cumplimiento_canal.iterrows()):
@@ -236,7 +244,6 @@ if df is not None and len(df) > 0:
                 </div>
                 """, unsafe_allow_html=True)
         
-        # ===== ALERTA: Canales en ROJO =====
         canales_rojo = cumplimiento_canal[cumplimiento_canal['Estado'] == 'Rojo']
         if len(canales_rojo) > 0:
             st.error(f"🔴 **ALERTA:** {len(canales_rojo)} canal(es) en estado ROJO - {', '.join(canales_rojo['Canal'].tolist())}")
@@ -352,34 +359,142 @@ if df is not None and len(df) > 0:
     
     st.markdown("---")
     
-    # ==================== TABLA RESUMEN ====================
-    with st.expander("📋 Ver detalle de activaciones"):
+    # ==================== TABLA DETALLADA CON SEMÁFORO Y FILTRO ====================
+    st.markdown("## 📋 Detalle de Activaciones")
+    
+    # ===== FILTRO DE LA TABLA =====
+    col_filtro1, col_filtro2, col_filtro3 = st.columns([2, 2, 1])
+    
+    with col_filtro1:
+        filtro_meta = st.selectbox(
+            "🔍 Filtrar por cumplimiento:",
+            ["Todos", "✅ Cumplieron (Si)", "🟡 Parciales", "❌ No cumplieron"]
+        )
+    
+    with col_filtro2:
+        # Filtro adicional por activador dentro de la tabla
+        if 'Activador de Marca' in df_filtrado.columns:
+            activadores_tabla = ['Todos'] + list(df_filtrado['Activador de Marca'].unique())
+            filtro_activador_tabla = st.selectbox("👤 Filtrar por activador:", activadores_tabla)
+        else:
+            filtro_activador_tabla = 'Todos'
+    
+    with col_filtro3:
+        # Mostrar contador
+        st.metric("📊 Registros", len(df_filtrado))
+    
+    # Aplicar filtros a la tabla
+    df_tabla = df_filtrado.copy()
+    
+    if filtro_meta != "Todos":
+        if filtro_meta == "✅ Cumplieron (Si)":
+            df_tabla = df_tabla[df_tabla['¿Se cumplió la meta?'] == 'Si']
+        elif filtro_meta == "🟡 Parciales":
+            df_tabla = df_tabla[df_tabla['¿Se cumplió la meta?'] == 'Parcialmente']
+        elif filtro_meta == "❌ No cumplieron":
+            df_tabla = df_tabla[df_tabla['¿Se cumplió la meta?'] == 'No']
+    
+    if filtro_activador_tabla != 'Todos' and 'Activador de Marca' in df_tabla.columns:
+        df_tabla = df_tabla[df_tabla['Activador de Marca'] == filtro_activador_tabla]
+    
+    # ===== CONSTRUIR LA TABLA CON SEMÁFORO =====
+    if len(df_tabla) > 0:
+        # Seleccionar columnas
         columnas_mostrar = [
             'Fecha de Activación',
+            'Hora de Activación según cronograma',
             'Activador de Marca',
             'Canal de Activación',
             'Lugar / Dirección del punto (ejm. PDV Cabaña, Asadero Sede 1 Suba, Jumbo 170, etc)',
             '¿Se cumplió la meta?',
-            'Ventas_netas_limpias',
+            'Meta de Ventas en kilos y/o unidades (ej: 150 kilos de pechuga, 30 combos, bandejas por fecha, etc.)',
+            'Ventas netas aproximadas (en kilos, poner únicamente cifra)',
+            'Observaciones del estado inicial',
+            '¿Cuál fue la razón principal del resultado?',
+            '¿Qué producto gustó más?',
+            'Percepción de precio por los clientes (1 es malo 5 es óptimo)',
             'Incidencias_detectadas'
         ]
         
-        columnas_existentes = [col for col in columnas_mostrar if col in df_filtrado.columns]
+        # Filtrar solo columnas que existen
+        columnas_existentes = [col for col in columnas_mostrar if col in df_tabla.columns]
         
         if columnas_existentes:
-            df_tabla = df_filtrado[columnas_existentes].copy()
+            df_tabla_display = df_tabla[columnas_existentes].copy()
+            
+            # Renombrar columnas para mejor visualización
             renombres = {
                 'Fecha de Activación': '📅 Fecha',
+                'Hora de Activación según cronograma': '🕐 Hora',
                 'Activador de Marca': '👤 Activador',
                 'Canal de Activación': '🏪 Canal',
-                'Lugar / Dirección del punto (ejm. PDV Cabaña, Asadero Sede 1 Suba, Jumbo 170, etc)': '📍 Ubicación',
+                'Lugar / Dirección del punto (ejm. PDV Cabaña, Asadero Sede 1 Suba, Jumbo 170, etc)': '📍 Lugar',
                 '¿Se cumplió la meta?': '✅ Meta',
-                'Ventas_netas_limpias': '💰 Ventas (kg)',
+                'Meta de Ventas en kilos y/o unidades (ej: 150 kilos de pechuga, 30 combos, bandejas por fecha, etc.)': '📊 Meta',
+                'Ventas netas aproximadas (en kilos, poner únicamente cifra)': '💰 Ventas (kg)',
+                'Observaciones del estado inicial': '📝 Estado inicial',
+                '¿Cuál fue la razón principal del resultado?': '📌 Razón del resultado',
+                '¿Qué producto gustó más?': '🏆 Producto destacado',
+                'Percepción de precio por los clientes (1 es malo 5 es óptimo)': '💲 Percepción precio',
                 'Incidencias_detectadas': '⚠️ Incidencias'
             }
-            df_tabla = df_tabla.rename(columns={k: v for k, v in renombres.items() if k in df_tabla.columns})
+            df_tabla_display = df_tabla_display.rename(columns={k: v for k, v in renombres.items() if k in df_tabla_display.columns})
             
-            st.dataframe(df_tabla, use_container_width=True, height=300)
+            # ===== APLICAR SEMÁFORO A LA COLUMNA META =====
+            def aplicar_semaforo_fila(row):
+                meta = row.get('✅ Meta', '')
+                if meta == 'Si':
+                    return ['background-color: #d4edda; color: #155724; font-weight: bold;'] * len(row)
+                elif meta == 'Parcialmente':
+                    return ['background-color: #fff3cd; color: #856404; font-weight: bold;'] * len(row)
+                elif meta == 'No':
+                    return ['background-color: #f8d7da; color: #721c24; font-weight: bold;'] * len(row)
+                else:
+                    return [''] * len(row)
+            
+            # Aplicar estilo a la columna Meta
+            styled_df = df_tabla_display.style.apply(aplicar_semaforo_fila, axis=1)
+            
+            # Mostrar tabla con semáforo
+            st.dataframe(
+                styled_df,
+                use_container_width=True,
+                height=400,
+                column_config={
+                    "✅ Meta": st.column_config.TextColumn("✅ Meta", width="small"),
+                    "🕐 Hora": st.column_config.TextColumn("🕐 Hora", width="small"),
+                    "📍 Lugar": st.column_config.TextColumn("📍 Lugar", width="medium"),
+                    "💲 Percepción precio": st.column_config.NumberColumn("💲 Percepción precio", min_value=1, max_value=5, format="%d ⭐"),
+                }
+            )
+            
+            # ===== CONTADORES DE LA TABLA =====
+            st.markdown("---")
+            col_c1, col_c2, col_c3 = st.columns(3)
+            
+            with col_c1:
+                total_si = len(df_tabla[df_tabla['¿Se cumplió la meta?'] == 'Si']) if '¿Se cumplió la meta?' in df_tabla.columns else 0
+                st.metric("✅ Cumplieron", total_si)
+            
+            with col_c2:
+                total_parcial = len(df_tabla[df_tabla['¿Se cumplió la meta?'] == 'Parcialmente']) if '¿Se cumplió la meta?' in df_tabla.columns else 0
+                st.metric("🟡 Parciales", total_parcial)
+            
+            with col_c3:
+                total_no = len(df_tabla[df_tabla['¿Se cumplió la meta?'] == 'No']) if '¿Se cumplió la meta?' in df_tabla.columns else 0
+                st.metric("🔴 No cumplieron", total_no)
+            
+            # ===== MOSTRAR ALERTA SI HAY MUCHOS "NO" =====
+            if total_no > 0:
+                porcentaje_no = (total_no / len(df_tabla)) * 100
+                if porcentaje_no > 30:
+                    st.error(f"🔴 **ALERTA:** {total_no} activaciones ({porcentaje_no:.0f}%) NO cumplieron la meta. Revisar estrategia.")
+                elif porcentaje_no > 15:
+                    st.warning(f"🟡 **ATENCIÓN:** {total_no} activaciones ({porcentaje_no:.0f}%) NO cumplieron la meta. Requiere seguimiento.")
+        else:
+            st.info("No hay columnas disponibles para mostrar la tabla")
+    else:
+        st.info("No hay activaciones que coincidan con los filtros seleccionados")
     
     # ==================== PIE DE PÁGINA ====================
     st.markdown("---")
@@ -387,3 +502,4 @@ if df is not None and len(df) > 0:
 
 else:
     st.error("❌ No se pudieron cargar los datos. Verifica la URL de Google Sheets.")
+    st.info("Asegúrate de que el archivo esté compartido como 'Cualquier persona con el enlace puede ver'")
