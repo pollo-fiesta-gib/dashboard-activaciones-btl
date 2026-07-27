@@ -53,6 +53,23 @@ def extraer_nombre_lugar(direccion):
     # Si no coincide con ninguno, devolver la dirección truncada
     return str(direccion)[:30]
 
+# Función para convertir fechas de forma segura
+def convertir_fecha_segura(fecha_str):
+    """Convierte fechas de forma segura manejando errores."""
+    if pd.isna(fecha_str):
+        return pd.NaT
+    try:
+        # Intentar diferentes formatos
+        for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y']:
+            try:
+                return pd.to_datetime(fecha_str, format=fmt)
+            except:
+                continue
+        # Si ningún formato funciona, usar el genérico
+        return pd.to_datetime(fecha_str, errors='coerce')
+    except:
+        return pd.NaT
+
 # Función para cargar datos
 @st.cache_data(ttl=3600)
 def cargar_datos():
@@ -103,6 +120,12 @@ def cargar_datos():
                         break
             df.at[idx, 'Incidencias_detectadas'] = ', '.join(set(incidencias)) if incidencias else 'Sin incidencias'
         
+        # ===== CONVERSIÓN SEGURA DE FECHAS (CORREGIDO) =====
+        if 'Fecha de Activación' in df.columns:
+            df['Fecha'] = df['Fecha de Activación'].apply(convertir_fecha_segura)
+            # Eliminar filas con fechas inválidas
+            df = df.dropna(subset=['Fecha'])
+        
         return df
     except Exception as e:
         st.error(f"Error al cargar datos: {e}")
@@ -111,7 +134,7 @@ def cargar_datos():
 # Cargar datos
 df = cargar_datos()
 
-if df is not None:
+if df is not None and len(df) > 0:
     # Mostrar datos cargados
     st.success(f"✅ Datos cargados correctamente - {len(df)} activaciones registradas")
     
@@ -133,8 +156,7 @@ if df is not None:
         canal_seleccionado = 'Todos'
     
     # Filtro de fecha
-    if 'Fecha de Activación' in df.columns:
-        df['Fecha'] = pd.to_datetime(df['Fecha de Activación'])
+    if 'Fecha' in df.columns and len(df) > 0:
         fecha_min = df['Fecha'].min().date()
         fecha_max = df['Fecha'].max().date()
         fecha_inicio = st.sidebar.date_input("Fecha desde", fecha_min, min_value=fecha_min, max_value=fecha_max)
@@ -190,7 +212,7 @@ if df is not None:
     with col5:
         if 'Ventas_netas_limpias' in df_filtrado.columns:
             total_ventas = df_filtrado['Ventas_netas_limpias'].sum()
-            st.metric("💰 Ventas Totales (kg)", f"{total_ventas:,.0f}")
+            st.metric("💰 Ventas Totales (kg)", f"{total_ventas:,.0f}" if pd.notna(total_ventas) else "N/A")
         else:
             st.metric("💰 Ventas Totales", "N/A")
     
@@ -201,7 +223,7 @@ if df is not None:
     
     with col1:
         st.subheader("📊 Activaciones por Activador")
-        if 'Activador de Marca' in df_filtrado.columns:
+        if 'Activador de Marca' in df_filtrado.columns and len(df_filtrado) > 0:
             conteo_activadores = df_filtrado['Activador de Marca'].value_counts().reset_index()
             conteo_activadores.columns = ['Activador', 'Número de Activaciones']
             
@@ -216,11 +238,11 @@ if df is not None:
             fig1.update_traces(textposition='outside')
             st.plotly_chart(fig1, use_container_width=True)
         else:
-            st.info("Columna 'Activador de Marca' no encontrada")
+            st.info("Columna 'Activador de Marca' no encontrada o sin datos")
     
     with col2:
         st.subheader("🏪 Activaciones por Canal")
-        if 'Canal de Activación' in df_filtrado.columns:
+        if 'Canal de Activación' in df_filtrado.columns and len(df_filtrado) > 0:
             conteo_canal = df_filtrado['Canal de Activación'].value_counts().reset_index()
             conteo_canal.columns = ['Canal', 'Número de Activaciones']
             
@@ -232,285 +254,281 @@ if df is not None:
             )
             st.plotly_chart(fig2, use_container_width=True)
         else:
-            st.info("Columna 'Canal de Activación' no encontrada")
+            st.info("Columna 'Canal de Activación' no encontrada o sin datos")
     
     # ==================== MAPA DE ACTIVACIONES ====================
-    st.markdown("---")
-    st.subheader("📍 Mapa de Activaciones")
-    
-    # Crear datos para el mapa (simulado con coordenadas aproximadas de Bogotá)
-    # En producción ideal, usarías geocodificación real
-    if 'Lugar / Dirección del punto' in df_filtrado.columns:
-        # Mapeo de ubicaciones a coordenadas aproximadas (Bogotá)
-        ubicaciones_conocidas = {
-            'Suba': {'lat': 4.7407, 'lon': -74.0830},
-            'Engativa': {'lat': 4.7000, 'lon': -74.1000},
-            'Kennedy': {'lat': 4.6600, 'lon': -74.1500},
-            'Soacha': {'lat': 4.5800, 'lon': -74.2200},
-            'Tunja': {'lat': 5.5300, 'lon': -73.3600},
-            'Fusagasuga': {'lat': 4.3400, 'lon': -74.3600},
-            'Bosa': {'lat': 4.6100, 'lon': -74.1900},
-            'Santa Fe': {'lat': 4.6100, 'lon': -74.0700},
-            'Toberin': {'lat': 4.6600, 'lon': -74.1300},
-            'Cabaña': {'lat': 4.7000, 'lon': -74.0800},
-            'Pradera': {'lat': 4.6700, 'lon': -74.1200},
-            'Floresta': {'lat': 4.6800, 'lon': -74.0900},
-            'Abastos': {'lat': 4.6500, 'lon': -74.1100},
-            'Hayuelos': {'lat': 4.7200, 'lon': -74.1600},
-            'Altos del Country': {'lat': 4.7100, 'lon': -74.0300}
-        }
+    if len(df_filtrado) > 0:
+        st.markdown("---")
+        st.subheader("📍 Mapa de Activaciones")
         
-        # Asignar coordenadas basadas en el nombre del lugar
-        df_filtrado['Latitud'] = 4.7110  # Centro de Bogotá por defecto
-        df_filtrado['Longitud'] = -74.0721
-        
-        for ubicacion, coords in ubicaciones_conocidas.items():
-            mascara = df_filtrado['Lugar / Dirección del punto'].str.contains(ubicacion, case=False, na=False)
-            df_filtrado.loc[mascara, 'Latitud'] = coords['lat']
-            df_filtrado.loc[mascara, 'Longitud'] = coords['lon']
-        
-        # Crear mapa con Plotly
-        fig_mapa = px.scatter_mapbox(
-            df_filtrado,
-            lat="Latitud",
-            lon="Longitud",
-            hover_name="Activador de Marca",
-            hover_data={
-                'Lugar / Dirección del punto': True,
-                'Canal de Activación': True,
-                '¿Se cumplió la meta?': True
-            },
-            color="Activador de Marca",
-            size_max=15,
-            zoom=9,
-            title="Ubicación de activaciones en Bogotá y alrededores"
-        )
-        
-        fig_mapa.update_layout(
-            mapbox_style="open-street-map",
-            height=500
-        )
-        
-        st.plotly_chart(fig_mapa, use_container_width=True)
-    else:
-        st.info("No se encontró la columna de ubicación para el mapa")
-    
-    # ==================== GRÁFICOS ADICIONALES ====================
-    st.markdown("---")
-    st.subheader("📈 Análisis de Desempeño")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Ventas por día
-        if 'Fecha' in df_filtrado.columns and 'Ventas_netas_limpias' in df_filtrado.columns:
-            ventas_por_dia = df_filtrado.groupby(df_filtrado['Fecha'].dt.date)['Ventas_netas_limpias'].sum().reset_index()
-            ventas_por_dia.columns = ['Fecha', 'Ventas (kg)']
+        # Crear datos para el mapa (simulado con coordenadas aproximadas de Bogotá)
+        if 'Lugar / Dirección del punto' in df_filtrado.columns:
+            # Mapeo de ubicaciones a coordenadas aproximadas (Bogotá)
+            ubicaciones_conocidas = {
+                'Suba': {'lat': 4.7407, 'lon': -74.0830},
+                'Engativa': {'lat': 4.7000, 'lon': -74.1000},
+                'Kennedy': {'lat': 4.6600, 'lon': -74.1500},
+                'Soacha': {'lat': 4.5800, 'lon': -74.2200},
+                'Tunja': {'lat': 5.5300, 'lon': -73.3600},
+                'Fusagasuga': {'lat': 4.3400, 'lon': -74.3600},
+                'Bosa': {'lat': 4.6100, 'lon': -74.1900},
+                'Santa Fe': {'lat': 4.6100, 'lon': -74.0700},
+                'Toberin': {'lat': 4.6600, 'lon': -74.1300},
+                'Cabaña': {'lat': 4.7000, 'lon': -74.0800},
+                'Pradera': {'lat': 4.6700, 'lon': -74.1200},
+                'Floresta': {'lat': 4.6800, 'lon': -74.0900},
+                'Abastos': {'lat': 4.6500, 'lon': -74.1100},
+                'Hayuelos': {'lat': 4.7200, 'lon': -74.1600},
+                'Altos del Country': {'lat': 4.7100, 'lon': -74.0300}
+            }
             
-            fig_ventas = px.line(
-                ventas_por_dia,
-                x='Fecha',
-                y='Ventas (kg)',
-                title="Ventas por día",
-                markers=True
+            # Asignar coordenadas basadas en el nombre del lugar
+            df_filtrado['Latitud'] = 4.7110  # Centro de Bogotá por defecto
+            df_filtrado['Longitud'] = -74.0721
+            
+            for ubicacion, coords in ubicaciones_conocidas.items():
+                mascara = df_filtrado['Lugar / Dirección del punto'].str.contains(ubicacion, case=False, na=False)
+                df_filtrado.loc[mascara, 'Latitud'] = coords['lat']
+                df_filtrado.loc[mascara, 'Longitud'] = coords['lon']
+            
+            # Crear mapa con Plotly
+            fig_mapa = px.scatter_mapbox(
+                df_filtrado,
+                lat="Latitud",
+                lon="Longitud",
+                hover_name="Activador de Marca",
+                hover_data={
+                    'Lugar / Dirección del punto': True,
+                    'Canal de Activación': True,
+                    '¿Se cumplió la meta?': True
+                },
+                color="Activador de Marca",
+                size_max=15,
+                zoom=9,
+                title="Ubicación de activaciones en Bogotá y alrededores"
             )
-            st.plotly_chart(fig_ventas, use_container_width=True)
-        else:
-            st.info("Datos de ventas por día no disponibles")
-    
-    with col2:
-        # Ticket promedio
-        if 'Ticket_limpo' in df_filtrado.columns:
-            # Eliminar valores nulos o cero
-            tickets = df_filtrado['Ticket_limpo'].dropna()
-            tickets = tickets[tickets > 0]
             
-            if len(tickets) > 0:
-                fig_ticket = px.box(
-                    y=tickets,
-                    title="Distribución del Ticket Promedio",
-                    labels={'y': 'Ticket Promedio ($)'}
-                )
-                st.plotly_chart(fig_ticket, use_container_width=True)
-            else:
-                st.info("No hay datos de ticket promedio disponibles")
+            fig_mapa.update_layout(
+                mapbox_style="open-street-map",
+                height=500
+            )
+            
+            st.plotly_chart(fig_mapa, use_container_width=True)
         else:
-            st.info("Datos de ticket promedio no disponibles")
+            st.info("No se encontró la columna de ubicación para el mapa")
+        
+        # ==================== GRÁFICOS ADICIONALES ====================
+        st.markdown("---")
+        st.subheader("📈 Análisis de Desempeño")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Ventas por día
+            if 'Fecha' in df_filtrado.columns and 'Ventas_netas_limpias' in df_filtrado.columns:
+                ventas_por_dia = df_filtrado.groupby(df_filtrado['Fecha'].dt.date)['Ventas_netas_limpias'].sum().reset_index()
+                ventas_por_dia.columns = ['Fecha', 'Ventas (kg)']
+                
+                if len(ventas_por_dia) > 0:
+                    fig_ventas = px.line(
+                        ventas_por_dia,
+                        x='Fecha',
+                        y='Ventas (kg)',
+                        title="Ventas por día",
+                        markers=True
+                    )
+                    st.plotly_chart(fig_ventas, use_container_width=True)
+                else:
+                    st.info("No hay datos de ventas por día")
+            else:
+                st.info("Datos de ventas por día no disponibles")
+        
+        with col2:
+            # Ticket promedio
+            if 'Ticket_limpo' in df_filtrado.columns:
+                # Eliminar valores nulos o cero
+                tickets = df_filtrado['Ticket_limpo'].dropna()
+                tickets = tickets[tickets > 0]
+                
+                if len(tickets) > 0:
+                    fig_ticket = px.box(
+                        y=tickets,
+                        title="Distribución del Ticket Promedio",
+                        labels={'y': 'Ticket Promedio ($)'}
+                    )
+                    st.plotly_chart(fig_ticket, use_container_width=True)
+                else:
+                    st.info("No hay datos de ticket promedio disponibles")
+            else:
+                st.info("Datos de ticket promedio no disponibles")
     
     # ==================== ANÁLISIS DE CUMPLIMIENTO ====================
-    st.markdown("---")
-    st.subheader("📊 Análisis de Cumplimiento de Meta")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if '¿Se cumplió la meta?' in df_filtrado.columns:
-            fig3 = px.pie(
-                df_filtrado,
-                names='¿Se cumplió la meta?',
-                title="Cumplimiento de Meta",
-                color_discrete_map={'Si': '#2ecc71', 'No': '#e74c3c', 'Parcialmente': '#f39c12'}
-            )
-            st.plotly_chart(fig3, use_container_width=True)
-    
-    with col2:
-        if 'Canal de Activación' in df_filtrado.columns and '¿Se cumplió la meta?' in df_filtrado.columns:
-            cumplimiento_canal = df_filtrado.groupby('Canal de Activación')['¿Se cumplió la meta?'].apply(
-                lambda x: (x == 'Si').sum() / len(x) * 100
-            ).reset_index()
-            cumplimiento_canal.columns = ['Canal', '% Cumplimiento']
-            
-            fig4 = px.bar(
-                cumplimiento_canal,
-                x='Canal',
-                y='% Cumplimiento',
-                title="% Cumplimiento por Canal",
-                color='Canal',
-                text='% Cumplimiento'
-            )
-            fig4.update_traces(textposition='outside')
-            fig4.update_layout(yaxis_range=[0, 100])
-            st.plotly_chart(fig4, use_container_width=True)
+    if len(df_filtrado) > 0:
+        st.markdown("---")
+        st.subheader("📊 Análisis de Cumplimiento de Meta")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if '¿Se cumplió la meta?' in df_filtrado.columns:
+                fig3 = px.pie(
+                    df_filtrado,
+                    names='¿Se cumplió la meta?',
+                    title="Cumplimiento de Meta",
+                    color_discrete_map={'Si': '#2ecc71', 'No': '#e74c3c', 'Parcialmente': '#f39c12'}
+                )
+                st.plotly_chart(fig3, use_container_width=True)
+        
+        with col2:
+            if 'Canal de Activación' in df_filtrado.columns and '¿Se cumplió la meta?' in df_filtrado.columns:
+                cumplimiento_canal = df_filtrado.groupby('Canal de Activación')['¿Se cumplió la meta?'].apply(
+                    lambda x: (x == 'Si').sum() / len(x) * 100
+                ).reset_index()
+                cumplimiento_canal.columns = ['Canal', '% Cumplimiento']
+                
+                fig4 = px.bar(
+                    cumplimiento_canal,
+                    x='Canal',
+                    y='% Cumplimiento',
+                    title="% Cumplimiento por Canal",
+                    color='Canal',
+                    text='% Cumplimiento'
+                )
+                fig4.update_traces(textposition='outside')
+                fig4.update_layout(yaxis_range=[0, 100])
+                st.plotly_chart(fig4, use_container_width=True)
     
     # ==================== BLINDAJE AVANZADO ====================
-    st.markdown("---")
-    st.subheader("🛡️ Análisis de Incidencias (Blindaje)")
-    
-    # Incidentes por categoría
-    if 'Incidencias_detectadas' in df_filtrado.columns:
-        # Contar incidencias
-        incidencias_count = df_filtrado['Incidencias_detectadas'].value_counts().reset_index()
-        incidencias_count.columns = ['Incidencia', 'Frecuencia']
+    if len(df_filtrado) > 0:
+        st.markdown("---")
+        st.subheader("🛡️ Análisis de Incidencias (Blindaje)")
         
-        # Filtrar "Sin incidencias"
-        incidencias_count = incidencias_count[incidencias_count['Incidencia'] != 'Sin incidencias']
-        
-        if len(incidencias_count) > 0:
-            col1, col2 = st.columns([1, 2])
+        if 'Incidencias_detectadas' in df_filtrado.columns:
+            # Contar incidencias
+            incidencias_count = df_filtrado['Incidencias_detectadas'].value_counts().reset_index()
+            incidencias_count.columns = ['Incidencia', 'Frecuencia']
             
-            with col1:
-                fig_incidencias = px.pie(
-                    incidencias_count,
-                    names='Incidencia',
-                    values='Frecuencia',
-                    title="Distribución de Incidencias"
-                )
-                st.plotly_chart(fig_incidencias, use_container_width=True)
+            # Filtrar "Sin incidencias"
+            incidencias_count = incidencias_count[incidencias_count['Incidencia'] != 'Sin incidencias']
             
-            with col2:
-                # Tabla de incidencias detallada
-                st.subheader("📋 Activaciones con Incidencias")
-                
-                # Crear tabla de incidencias detallada
-                df_incidencias_detalle = df_filtrado[df_filtrado['Incidencias_detectadas'] != 'Sin incidencias'][
-                    ['Fecha de Activación', 'Activador de Marca', 'Canal de Activación', 
-                     'Lugar / Dirección del punto', '¿Se cumplió la meta?', 'Incidencias_detectadas']
-                ].copy()
-                
-                # Limitar a 20 filas para no saturar
-                if len(df_incidencias_detalle) > 20:
-                    st.warning(f"Mostrando 20 de {len(df_incidencias_detalle)} activaciones con incidencias")
-                    df_incidencias_detalle = df_incidencias_detalle.head(20)
-                
-                st.dataframe(df_incidencias_detalle, use_container_width=True)
-                
-                # Alerta de "Blindaje": activaciones con incidencias pero que cumplieron meta
-                blindadas = df_incidencias_detalle[df_incidencias_detalle['¿Se cumplió la meta?'] == 'Si']
-                if len(blindadas) > 0:
-                    st.success(f"🛡️ {len(blindadas)} activaciones tuvieron incidencias pero cumplieron la meta - ¡Activadores blindados!")
-        else:
-            st.info("✅ No se detectaron incidencias en las activaciones")
-    
-    # ==================== VISOR DE FOTOS ====================
-    st.markdown("---")
-    st.subheader("📸 Visor de Fotos - Evidencia en Campo")
-    
-    # Crear selector para elegir una activación
-    if 'Fecha de Activación' in df_filtrado.columns and 'Activador de Marca' in df_filtrado.columns:
-        # Crear una lista de opciones para el selector
-        opciones = []
-        for idx, row in df_filtrado.iterrows():
-            fecha = row.get('Fecha de Activación', 'Sin fecha')
-            activador = row.get('Activador de Marca', 'Sin activador')
-            lugar = row.get('Lugar / Dirección del punto', 'Sin lugar')
-            opciones.append(f"{fecha} - {activador} - {lugar}")
-        
-        if opciones:
-            seleccion = st.selectbox("Selecciona una activación para ver las fotos:", opciones)
-            
-            if seleccion:
-                idx = opciones.index(seleccion)
-                row = df_filtrado.iloc[idx]
-                
-                col1, col2 = st.columns(2)
+            if len(incidencias_count) > 0:
+                col1, col2 = st.columns([1, 2])
                 
                 with col1:
-                    st.markdown("**📸 Foto del Lineal o Vitrina**")
-                    if 'Foto del lineal o vitrina (obligatoria)' in row and pd.notna(row['Foto del lineal o vitrina (obligatoria)']):
-                        url_foto = row['Foto del lineal o vitrina (obligatoria)']
-                        # Si es un link de Google Drive, convertirlo a embed
-                        if 'drive.google.com' in str(url_foto):
-                            if 'id=' in str(url_foto):
-                                file_id = str(url_foto).split('id=')[1].split('&')[0]
-                                url_foto = f"https://drive.google.com/uc?export=view&id={file_id}"
-                        st.image(url_foto, use_container_width=True)
-                    else:
-                        st.info("No hay foto disponible")
+                    fig_incidencias = px.pie(
+                        incidencias_count,
+                        names='Incidencia',
+                        values='Frecuencia',
+                        title="Distribución de Incidencias"
+                    )
+                    st.plotly_chart(fig_incidencias, use_container_width=True)
                 
                 with col2:
-                    st.markdown("**✍️ Firma del Administrador**")
-                    if 'Firma de quien califica' in row and pd.notna(row['Firma de quien califica']):
-                        url_firma = row['Firma de quien califica']
-                        if 'drive.google.com' in str(url_firma):
-                            if 'id=' in str(url_firma):
-                                file_id = str(url_firma).split('id=')[1].split('&')[0]
-                                url_firma = f"https://drive.google.com/uc?export=view&id={file_id}"
-                        st.image(url_firma, use_container_width=True)
-                    else:
-                        st.info("No hay firma disponible")
+                    st.subheader("📋 Activaciones con Incidencias")
+                    
+                    df_incidencias_detalle = df_filtrado[df_filtrado['Incidencias_detectadas'] != 'Sin incidencias'][
+                        ['Fecha de Activación', 'Activador de Marca', 'Canal de Activación', 
+                         'Lugar / Dirección del punto', '¿Se cumplió la meta?', 'Incidencias_detectadas']
+                    ].copy()
+                    
+                    if len(df_incidencias_detalle) > 20:
+                        st.warning(f"Mostrando 20 de {len(df_incidencias_detalle)} activaciones con incidencias")
+                        df_incidencias_detalle = df_incidencias_detalle.head(20)
+                    
+                    st.dataframe(df_incidencias_detalle, use_container_width=True)
+                    
+                    blindadas = df_incidencias_detalle[df_incidencias_detalle['¿Se cumplió la meta?'] == 'Si']
+                    if len(blindadas) > 0:
+                        st.success(f"🛡️ {len(blindadas)} activaciones tuvieron incidencias pero cumplieron la meta - ¡Activadores blindados!")
+            else:
+                st.info("✅ No se detectaron incidencias en las activaciones")
+    
+    # ==================== VISOR DE FOTOS ====================
+    if len(df_filtrado) > 0:
+        st.markdown("---")
+        st.subheader("📸 Visor de Fotos - Evidencia en Campo")
+        
+        if 'Fecha de Activación' in df_filtrado.columns and 'Activador de Marca' in df_filtrado.columns:
+            opciones = []
+            for idx, row in df_filtrado.iterrows():
+                fecha = row.get('Fecha de Activación', 'Sin fecha')
+                activador = row.get('Activador de Marca', 'Sin activador')
+                lugar = row.get('Lugar / Dirección del punto', 'Sin lugar')
+                opciones.append(f"{fecha} - {activador} - {lugar}")
+            
+            if opciones:
+                seleccion = st.selectbox("Selecciona una activación para ver las fotos:", opciones)
                 
-                # Mostrar información adicional de la activación seleccionada
-                with st.expander("📋 Ver detalles de la activación"):
-                    detalles = {
-                        'Activador': row.get('Activador de Marca', 'N/A'),
-                        'Canal': row.get('Canal de Activación', 'N/A'),
-                        'Ubicación': row.get('Lugar / Dirección del punto', 'N/A'),
-                        'Cumplió meta': row.get('¿Se cumplió la meta?', 'N/A'),
-                        'Ventas (kg)': row.get('Ventas_netas_limpias', 'N/A'),
-                        'Incidencias': row.get('Incidencias_detectadas', 'Sin incidencias')
-                    }
-                    st.json(detalles)
-        else:
-            st.info("No hay activaciones disponibles para mostrar")
-    else:
-        st.info("No se encontraron los datos necesarios para el visor de fotos")
+                if seleccion:
+                    idx = opciones.index(seleccion)
+                    row = df_filtrado.iloc[idx]
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**📸 Foto del Lineal o Vitrina**")
+                        if 'Foto del lineal o vitrina (obligatoria)' in row and pd.notna(row['Foto del lineal o vitrina (obligatoria)']):
+                            url_foto = row['Foto del lineal o vitrina (obligatoria)']
+                            if 'drive.google.com' in str(url_foto):
+                                if 'id=' in str(url_foto):
+                                    file_id = str(url_foto).split('id=')[1].split('&')[0]
+                                    url_foto = f"https://drive.google.com/uc?export=view&id={file_id}"
+                            st.image(url_foto, use_container_width=True)
+                        else:
+                            st.info("No hay foto disponible")
+                    
+                    with col2:
+                        st.markdown("**✍️ Firma del Administrador**")
+                        if 'Firma de quien califica' in row and pd.notna(row['Firma de quien califica']):
+                            url_firma = row['Firma de quien califica']
+                            if 'drive.google.com' in str(url_firma):
+                                if 'id=' in str(url_firma):
+                                    file_id = str(url_firma).split('id=')[1].split('&')[0]
+                                    url_firma = f"https://drive.google.com/uc?export=view&id={file_id}"
+                            st.image(url_firma, use_container_width=True)
+                        else:
+                            st.info("No hay firma disponible")
+                    
+                    with st.expander("📋 Ver detalles de la activación"):
+                        detalles = {
+                            'Activador': row.get('Activador de Marca', 'N/A'),
+                            'Canal': row.get('Canal de Activación', 'N/A'),
+                            'Ubicación': row.get('Lugar / Dirección del punto', 'N/A'),
+                            'Cumplió meta': row.get('¿Se cumplió la meta?', 'N/A'),
+                            'Ventas (kg)': row.get('Ventas_netas_limpias', 'N/A'),
+                            'Incidencias': row.get('Incidencias_detectadas', 'Sin incidencias')
+                        }
+                        st.json(detalles)
+            else:
+                st.info("No hay activaciones disponibles para mostrar")
     
     # ==================== TABLA COMPLETA ====================
-    st.markdown("---")
-    st.subheader("📋 Tabla Completa de Activaciones")
-    
-    # Seleccionar columnas relevantes para mostrar
-    columnas_mostrar = [
-        'Fecha de Activación',
-        'Activador de Marca',
-        'Canal de Activación',
-        'Lugar / Dirección del punto',
-        '¿Se cumplió la meta?',
-        'Ventas_netas_limpias',
-        'Incidencias_detectadas'
-    ]
-    
-    columnas_existentes = [col for col in columnas_mostrar if col in df_filtrado.columns]
-    
-    if columnas_existentes:
-        st.dataframe(df_filtrado[columnas_existentes], use_container_width=True, height=400)
-    else:
-        st.dataframe(df_filtrado, use_container_width=True, height=400)
+    if len(df_filtrado) > 0:
+        st.markdown("---")
+        st.subheader("📋 Tabla Completa de Activaciones")
+        
+        columnas_mostrar = [
+            'Fecha de Activación',
+            'Activador de Marca',
+            'Canal de Activación',
+            'Lugar / Dirección del punto',
+            '¿Se cumplió la meta?',
+            'Ventas_netas_limpias',
+            'Incidencias_detectadas'
+        ]
+        
+        columnas_existentes = [col for col in columnas_mostrar if col in df_filtrado.columns]
+        
+        if columnas_existentes:
+            st.dataframe(df_filtrado[columnas_existentes], use_container_width=True, height=400)
+        else:
+            st.dataframe(df_filtrado, use_container_width=True, height=400)
     
     # ==================== PIE DE PÁGINA ====================
     st.markdown("---")
     st.caption(f"🔄 Actualizado automáticamente desde Google Forms - Última carga: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    st.caption(f"📊 Total de registros: {len(df)} - Filtrados: {len(df_filtrado)}")
+    if len(df_filtrado) > 0:
+        st.caption(f"📊 Total de registros: {len(df)} - Filtrados: {len(df_filtrado)}")
 
 else:
     st.error("❌ No se pudieron cargar los datos. Verifica la URL de Google Sheets.")
